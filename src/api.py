@@ -36,8 +36,10 @@ GENDERS = {
 }
 
 
-class CharField(object):
-    pass
+class CharField:
+    def __init__(self, required=False, nullable=True):
+        self.required = required
+        self.nullable = nullable
 
 
 class ArgumentsField(object):
@@ -68,26 +70,29 @@ class ClientIDsField(object):
     pass
 
 
-class ClientsInterestsRequest(object):
-    client_ids = ClientIDsField(required=True)
-    date = DateField(required=False, nullable=True)
+# class ClientsInterestsRequest(object):
+#     client_ids = ClientIDsField(required=True)
+#     date = DateField(required=False, nullable=True)
+#
+#
+# class OnlineScoreRequest(object):
+#     first_name = CharField(required=False, nullable=True)
+#     last_name = CharField(required=False, nullable=True)
+#     email = EmailField(required=False, nullable=True)
+#     phone = PhoneField(required=False, nullable=True)
+#     birthday = BirthDayField(required=False, nullable=True)
+#     gender = GenderField(required=False, nullable=True)
 
 
-class OnlineScoreRequest(object):
-    first_name = CharField(required=False, nullable=True)
-    last_name = CharField(required=False, nullable=True)
-    email = EmailField(required=False, nullable=True)
-    phone = PhoneField(required=False, nullable=True)
-    birthday = BirthDayField(required=False, nullable=True)
-    gender = GenderField(required=False, nullable=True)
-
-
-class MethodRequest(object):
-    account = CharField(required=False, nullable=True)
+class MethodRequest:
+    # account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
-    token = CharField(required=True, nullable=True)
-    arguments = ArgumentsField(required=True, nullable=True)
-    method = CharField(required=True, nullable=False)
+    # token = CharField(required=True, nullable=True)
+    # arguments = ArgumentsField(required=True, nullable=True)
+    # method = CharField(required=True, nullable=False)
+    def __setattr__(self, key, value):
+        print(getattr(self, key))
+        print(key, value)
 
     @property
     def is_admin(self):
@@ -105,7 +110,15 @@ def check_auth(request):
 
 
 def method_handler(request, ctx, store):
-    response, code = None, None
+    logging.info('Request {}, context {}, settings {}'.format(request, ctx, store))
+    if not request.get('body'):
+        response, code = ERRORS[INVALID_REQUEST], INVALID_REQUEST
+    method_request = MethodRequest()
+    method_request.login = request['body']['login']
+
+    print(method_request.login)
+
+    response, code = '', OK
     return response, code
 
 
