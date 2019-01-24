@@ -40,9 +40,21 @@ class CharField:
     def __init__(self, required=False, nullable=True):
         self.required = required
         self.nullable = nullable
+        self.value = None
+
+    def __set__(self, instance, value):
+        self.validate(value)
+        self.value = value
+
+    def __get__(self, instance, owner):
+        return self.value
+
+    def validate(self, value):
+        if not value and self.required:
+            raise Exception('value is required')
 
 
-class ArgumentsField(object):
+class ArgumentsField(CharField):
     pass
 
 
@@ -85,14 +97,18 @@ class ClientIDsField(object):
 
 
 class MethodRequest:
-    # account = CharField(required=False, nullable=True)
+    account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
-    # token = CharField(required=True, nullable=True)
-    # arguments = ArgumentsField(required=True, nullable=True)
-    # method = CharField(required=True, nullable=False)
-    def __setattr__(self, key, value):
-        print(getattr(self, key))
-        print(key, value)
+    token = CharField(required=True, nullable=True)
+    arguments = ArgumentsField(required=True, nullable=True)
+    method = CharField(required=True, nullable=False)
+
+    def __init__(self, data):
+        self.login = data['body'].get('login')
+        self.account = data['body'].get('account')
+        self.token = data['body'].get('token')
+        self.method = data['body'].get('method')
+        self.arguments = data.get('arguments')
 
     @property
     def is_admin(self):
@@ -111,10 +127,10 @@ def check_auth(request):
 
 def method_handler(request, ctx, store):
     logging.info('Request {}, context {}, settings {}'.format(request, ctx, store))
-    if not request.get('body'):
+    if 'body' not in request:
         response, code = ERRORS[INVALID_REQUEST], INVALID_REQUEST
-    method_request = MethodRequest()
-    method_request.login = request['body']['login']
+
+    method_request = MethodRequest(request)
 
     print(method_request.login)
 
