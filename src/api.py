@@ -36,13 +36,37 @@ GENDERS = {
 }
 
 
-class CharField:
+class ValidationError(Exception):
+    pass
+
+
+class Field:
+
     def __init__(self, required=False, nullable=True):
         self.required = required
         self.nullable = nullable
 
+    def set(self, value):
+        self.validate(value)
+        return value
 
-class ArgumentsField(object):
+    def validate(self, value):
+        pass
+
+
+class CharField(Field):
+
+    def validate(self, value):
+        super().validate(value)
+        if value is None and self.required:
+            raise ValidationError('ALARM')
+        try:
+            str(value)
+        except ValueError:
+            raise ValidationError('ALARM')
+
+
+class ArgumentsField(Field):
     pass
 
 
@@ -85,14 +109,19 @@ class ClientIDsField(object):
 
 
 class MethodRequest:
-    # account = CharField(required=False, nullable=True)
+    account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
-    # token = CharField(required=True, nullable=True)
-    # arguments = ArgumentsField(required=True, nullable=True)
-    # method = CharField(required=True, nullable=False)
-    def __setattr__(self, key, value):
-        print(getattr(self, key))
-        print(key, value)
+    token = CharField(required=True, nullable=True)
+    arguments = ArgumentsField(required=True, nullable=True)
+    method = CharField(required=True, nullable=False)
+
+    def __init__(self, data):
+        body, arguments = data.get('body'), data.get('arguments')
+        self.login = self.login.set(body.get('login'))
+        self.account = self.account.set(body.get('account'))
+        self.token = self.token.set(body.get('token'))
+        self.method = self.method.set(body.get('method'))
+        self.arguments = self.arguments.set(arguments)
 
     @property
     def is_admin(self):
@@ -111,14 +140,11 @@ def check_auth(request):
 
 def method_handler(request, ctx, store):
     logging.info('Request {}, context {}, settings {}'.format(request, ctx, store))
+    response, code = '', OK
     if not request.get('body'):
         response, code = ERRORS[INVALID_REQUEST], INVALID_REQUEST
-    method_request = MethodRequest()
-    method_request.login = request['body']['login']
+    method_request = MethodRequest(request)
 
-    print(method_request.login)
-
-    response, code = '', OK
     return response, code
 
 
