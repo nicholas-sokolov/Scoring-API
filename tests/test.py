@@ -28,10 +28,11 @@ class TestSuite(unittest.TestCase):
 
     def set_valid_auth(self, request):
         if request.get("login") == api.ADMIN_LOGIN:
-            request["token"] = hashlib.sha512(datetime.datetime.now().strftime("%Y%m%d%H") + api.ADMIN_SALT).hexdigest()
+            request["token"] = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + api.ADMIN_SALT).encode())\
+                .hexdigest()
         else:
             msg = request.get("account", "") + request.get("login", "") + api.SALT
-            request["token"] = hashlib.sha512(msg).hexdigest()
+            request["token"] = hashlib.sha512(msg.encode()).hexdigest()
 
     def test_empty_request(self):
         _, code = self.get_response({})
