@@ -45,44 +45,48 @@ class Field:
     def __init__(self, required=False, nullable=True):
         self.required = required
         self.nullable = nullable
+        self.__value = None
+
+    def __set__(self, instance, value):
+        self.validate(value)
+        self.set(value)
+
+    def __get__(self, instance, owner):
+        return self.__value
 
     def set(self, value):
-        self.validate(value)
-        return value
+        self.__value = value
 
     def validate(self, value):
         if value is None and self.required:
             raise ValidationError()
-        elif not value and not self.nullable:
+        elif not isinstance(value, (int, bool)) and not value and not self.nullable:
             raise ValidationError()
 
 
 class CharField(Field):
+    """ String """
 
-    def validate(self, value):
-        super().validate(value)
+    def set(self, value):
         if value and not isinstance(value, str):
             raise ValidationError()
+        super().set(value)
 
 
 class IntegerField(Field):
+    """ Number """
 
     def set(self, value):
-        super().set(value)
-        if value:
-            return int(value)
-
-    def validate(self, value):
-        super().validate(value)
         if not value:
             return
         try:
-            int(value)
+            super().set(int(value))
         except (ValueError, TypeError):
             raise ValidationError()
 
 
 class ArgumentsField(Field):
+    """ Dict """
 
     def validate(self, value):
         super().validate(value)
@@ -93,38 +97,48 @@ class ArgumentsField(Field):
 
 
 class EmailField(CharField):
-    pass
+    """ String that contains '@' """
+
+    def validate(self, value):
+        super().validate(value)
+        if value and '@' not in value:
+            raise ValidationError()
 
 
-class PhoneField(CharField):
-    pass
+class PhoneField(CharField, IntegerField):
+    """ String or Number that has length = 11 and starts with '7' """
+
+    def validate(self, value):
+        super().validate(value)
+        try:
+            if len(str(value)) != 11 or not str(value).startswith('7'):
+                raise ValidationError()
+        except TypeError:
+            raise ValidationError()
 
 
 class DateField(CharField):
+    """ String with format DD.MM.YYYY """
 
-    def validate(self, value):
-        super().validate(value)
-        if not value:
-            return
+    def set(self, value):
         try:
-            datetime.datetime.strptime(value, '%d.%m.%Y')
+            super().set(datetime.datetime.strptime(value, '%d.%m.%Y'))
         except ValueError:
-            raise ValidationError
+            raise ValidationError()
 
 
 class BirthDayField(DateField):
+    """ Date from which 70 years still haven't passed """
 
     def validate(self, value):
         super().validate(value)
-        if not value:
-            return
         date = datetime.datetime.strptime(value, '%d.%m.%Y')
-        # threshold 70 years
         if date.year < datetime.date.today().year - 70:
             raise ValidationError
 
 
 class GenderField(IntegerField):
+    """ Number which define gender sing (0 - UNKNOWN, 1 - MALE, 2 - FEMALE) """
 
     def validate(self, value):
         super().validate(value)
@@ -157,16 +171,23 @@ class OnlineScoreRequest:
         self.request_data = request_data
         self.is_valid = True
         self.__fill_data()
+        self.validate()
 
     def __fill_data(self):
         try:
-            self.first_name = self.first_name.set(self.request_data.get('first_name'))
-            self.last_name = self.last_name.set(self.request_data.get('last_name'))
-            self.email = self.email.set(self.request_data.get('email'))
-            self.phone = self.phone.set(self.request_data.get('phone'))
-            self.birthday = self.birthday.set(self.request_data.get('birthday'))
-            self.gender = self.gender.set(self.request_data.get('gender'))
+            self.first_name = self.request_data.get('first_name')
+            self.last_name = self.request_data.get('last_name')
+            self.email = self.request_data.get('email')
+            self.phone = self.request_data.get('phone')
+            self.birthday = self.request_data.get('birthday')
+            self.gender = self.request_data.get('gender')
         except ValidationError:
+            self.is_valid = False
+
+    def validate(self):
+        if None in (self.phone, self.email) \
+                and None in (self.first_name, self.last_name) \
+                and None in (self.gender, self.birthday):
             self.is_valid = False
 
 
@@ -179,23 +200,31 @@ class MethodRequest:
 
     def __init__(self, request_data):
         self.request_data = request_data
-        self.is_valid = True
+        self.__is_valid = True
         self.__fill_data()
 
     @property
     def is_admin(self):
         return self.login == ADMIN_LOGIN
 
+    @property
+    def is_valid(self):
+        return self.__is_valid is True
+
     def __fill_data(self):
         request_body = self.request_data.get('body')
+        if request_body is None:
+            logging.error('\'body\' not found.\nRequest: {}'.format(self.request_data))
+            self.__is_valid = False
+            return
         try:
-            self.login = self.login.set(request_body.get('login'))
-            self.account = self.account.set(request_body.get('account'))
-            self.token = self.token.set(request_body.get('token'))
-            self.method = self.method.set(request_body.get('method'))
-            self.arguments = self.arguments.set(request_body.get('arguments'))
+            self.login = request_body.get('login')
+            self.account = request_body.get('account')
+            self.token = request_body.get('token')
+            self.method = request_body.get('method')
+            self.arguments = request_body.get('arguments')
         except ValidationError:
-            self.is_valid = False
+            self.__is_valid = False
 
 
 def check_auth(request):
@@ -211,13 +240,10 @@ def check_auth(request):
 def method_handler(request, ctx, store):
     logging.info('Request {}, context {}, settings {}'.format(request, ctx, store))
     response, code = '', OK
-    r = MethodRequest(request)
-    if not r.is_valid:
-        return ERRORS[INVALID_REQUEST], INVALID_REQUEST
-    elif not check_auth(r):
-        return ERRORS[FORBIDDEN], FORBIDDEN
-    m = OnlineScoreRequest(r.arguments) if r.method == 'online_score' else ClientsInterestsRequest(r.arguments)
-    if not m.is_valid:
+    request_instance = MethodRequest(request)
+    method = OnlineScoreRequest(request_instance) if request_instance.method == 'online_score' \
+        else ClientsInterestsRequest(request_instance)
+    if not method.is_valid:
         return ERRORS[INVALID_REQUEST], INVALID_REQUEST
 
     return response, code
