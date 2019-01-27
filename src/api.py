@@ -10,6 +10,8 @@ import uuid
 from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import scoring
+
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
 ADMIN_SALT = "42"
@@ -37,7 +39,11 @@ GENDERS = {
 
 
 class ValidationError(Exception):
-    pass
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        if args:
+            logging.error('Field {}'.format(args[0]))
 
 
 class Field:
@@ -54,14 +60,17 @@ class Field:
     def __get__(self, instance, owner):
         return self.__value
 
+    def __set_name__(self, owner, name):
+        self.instance_name = name
+
     def set(self, value):
         self.__value = value
 
     def validate(self, value):
         if value is None and self.required:
-            raise ValidationError()
+            raise ValidationError("'{}' is required".format(self.instance_name))
         elif not isinstance(value, (int, bool)) and not value and not self.nullable:
-            raise ValidationError()
+            raise ValidationError("'{}' value cannot be empty".format(self.instance_name))
 
 
 class CharField(Field):
@@ -69,7 +78,7 @@ class CharField(Field):
 
     def set(self, value):
         if value and not isinstance(value, str):
-            raise ValidationError()
+            raise ValidationError("'{}' must be a string".format(self.instance_name))
         super().set(value)
 
 
@@ -82,7 +91,7 @@ class IntegerField(Field):
         try:
             super().set(int(value))
         except (ValueError, TypeError):
-            raise ValidationError()
+            raise ValidationError("'{}' must be a integer".format(self.instance_name))
 
 
 class ArgumentsField(Field):
@@ -93,7 +102,7 @@ class ArgumentsField(Field):
         try:
             dict(value)
         except ValueError:
-            raise ValidationError()
+            raise ValidationError("'{}' must be a dict".format(self.instance_name))
 
 
 class EmailField(CharField):
@@ -102,7 +111,7 @@ class EmailField(CharField):
     def validate(self, value):
         super().validate(value)
         if value and '@' not in value:
-            raise ValidationError()
+            raise ValidationError("'{}' does not contain a '@' char".format(self.instance_name))
 
 
 class PhoneField(CharField, IntegerField):
@@ -112,9 +121,9 @@ class PhoneField(CharField, IntegerField):
         super().validate(value)
         try:
             if len(str(value)) != 11 or not str(value).startswith('7'):
-                raise ValidationError()
+                raise ValidationError("'{}' length should be equal 11 and starts with '7' ".format(self.instance_name))
         except TypeError:
-            raise ValidationError()
+            raise ValidationError("'{}' value should be a string or integer type".format(self.instance_name))
 
 
 class DateField(CharField):
@@ -124,7 +133,7 @@ class DateField(CharField):
         try:
             super().set(datetime.datetime.strptime(value, '%d.%m.%Y'))
         except ValueError:
-            raise ValidationError()
+            raise ValidationError("'{}' value should have DD.MM.YYYY format".format(self.instance_name))
 
 
 class BirthDayField(DateField):
@@ -134,7 +143,7 @@ class BirthDayField(DateField):
         super().validate(value)
         date = datetime.datetime.strptime(value, '%d.%m.%Y')
         if date.year < datetime.date.today().year - 70:
-            raise ValidationError
+            raise ValidationError("'{}' must not be older than 70 ".format(self.instance_name))
 
 
 class GenderField(IntegerField):
@@ -143,11 +152,15 @@ class GenderField(IntegerField):
     def validate(self, value):
         super().validate(value)
         if value and value not in (UNKNOWN, MALE, FEMALE):
-            raise ValidationError
+            raise ValidationError("'{}' value must be (0 - UNKNOWN, 1 - MALE, 2 - FEMALE)".format(self.instance_name))
 
 
-class ClientIDsField(IntegerField):
-    pass
+class ClientIDsField(Field):
+
+    def validate(self, value):
+        super().validate(value)
+        if not isinstance(value, (list, tuple)):
+            raise ValidationError("'{}' value must be of list or tuple type".format(self.instance_name))
 
 
 class ClientsInterestsRequest:
@@ -158,6 +171,9 @@ class ClientsInterestsRequest:
         self.request_data = request_data
         self.is_valid = False
 
+    def get_response(self):
+        raise NotImplementedError()
+
 
 class OnlineScoreRequest:
     first_name = CharField(required=False, nullable=True)
@@ -167,28 +183,32 @@ class OnlineScoreRequest:
     birthday = BirthDayField(required=False, nullable=True)
     gender = GenderField(required=False, nullable=True)
 
-    def __init__(self, request_data):
-        self.request_data = request_data
+    def __init__(self, parent):
+        self.parent = parent
         self.is_valid = True
         self.__fill_data()
-        self.validate()
+        self.__validate()
 
     def __fill_data(self):
         try:
-            self.first_name = self.request_data.get('first_name')
-            self.last_name = self.request_data.get('last_name')
-            self.email = self.request_data.get('email')
-            self.phone = self.request_data.get('phone')
-            self.birthday = self.request_data.get('birthday')
-            self.gender = self.request_data.get('gender')
+            self.first_name = self.parent.arguments.get('first_name')
+            self.last_name = self.parent.arguments.get('last_name')
+            self.email = self.parent.arguments.get('email')
+            self.phone = self.parent.arguments.get('phone')
+            self.birthday = self.parent.arguments.get('birthday')
+            self.gender = self.parent.arguments.get('gender')
         except ValidationError:
             self.is_valid = False
 
-    def validate(self):
+    def __validate(self):
         if None in (self.phone, self.email) \
                 and None in (self.first_name, self.last_name) \
                 and None in (self.gender, self.birthday):
             self.is_valid = False
+
+    def get_response(self):
+        return scoring.get_score(None, self.phone, self.email, self.birthday, self.gender, self.first_name,
+                                 self.last_name)
 
 
 class MethodRequest:
@@ -200,8 +220,10 @@ class MethodRequest:
 
     def __init__(self, request_data):
         self.request_data = request_data
+        self.response = ''
         self.__is_valid = True
         self.__fill_data()
+        self.__get_response()
 
     @property
     def is_admin(self):
@@ -214,7 +236,7 @@ class MethodRequest:
     def __fill_data(self):
         request_body = self.request_data.get('body')
         if request_body is None:
-            logging.error('\'body\' not found.\nRequest: {}'.format(self.request_data))
+            logging.error("'body' not found.\nRequest: {}".format(self.request_data))
             self.__is_valid = False
             return
         try:
@@ -225,6 +247,20 @@ class MethodRequest:
             self.arguments = request_body.get('arguments')
         except ValidationError:
             self.__is_valid = False
+
+    def __get_response(self):
+        if not self.__is_valid:
+            return
+        if self.method == 'online_score':
+            method = OnlineScoreRequest(self)
+        elif self.method == 'clients_interests':
+            method = ClientsInterestsRequest(self)
+        else:
+            self.__is_valid = False
+            logging.error("'{}' this method is unknown".format(self.method))
+        self.response = method.get_response()
+
+
 
 
 def check_auth(request):
@@ -241,9 +277,7 @@ def method_handler(request, ctx, store):
     logging.info('Request {}, context {}, settings {}'.format(request, ctx, store))
     response, code = '', OK
     request_instance = MethodRequest(request)
-    method = OnlineScoreRequest(request_instance) if request_instance.method == 'online_score' \
-        else ClientsInterestsRequest(request_instance)
-    if not method.is_valid:
+    if not request_instance.is_valid:
         return ERRORS[INVALID_REQUEST], INVALID_REQUEST
 
     return response, code
@@ -297,7 +331,7 @@ if __name__ == "__main__":
     op = OptionParser()
     op.add_option("-p", "--port", action="store", type=int, default=8080)
     op.add_option("-l", "--log", action="store", default=None)
-    (opts, args) = op.parse_args()
+    (opts, _args) = op.parse_args()
     logging.basicConfig(filename=opts.log, level=logging.INFO,
                         format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
     server = HTTPServer(("localhost", opts.port), MainHTTPHandler)
