@@ -47,6 +47,12 @@ class ValidationError(Exception):
 
 
 class Field:
+    """ Main descriptor class for fields
+
+    :arg bool required: Should be set to True if field is required. By default not required.
+    :arg bool nullable: Should be set to True if field can't be is empty. By default can be empty.
+
+    """
 
     def __init__(self, required=False, nullable=True):
         self.required = required
