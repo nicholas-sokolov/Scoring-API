@@ -114,11 +114,13 @@ class EmailField(CharField):
             raise ValidationError("'{}' does not contain a '@' char".format(self.instance_name))
 
 
-class PhoneField(CharField, IntegerField):
+class PhoneField(Field):
     """ String or Number that has length = 11 and starts with '7' """
 
     def validate(self, value):
         super().validate(value)
+        if not value:
+            return
         try:
             if len(str(value)) != 11 or not str(value).startswith('7'):
                 raise ValidationError("'{}' length should be equal 11 and starts with '7' ".format(self.instance_name))
@@ -129,10 +131,12 @@ class PhoneField(CharField, IntegerField):
 class DateField(CharField):
     """ String with format DD.MM.YYYY """
 
-    def set(self, value):
+    def validate(self, value):
+        if not value:
+            return
         try:
-            super().set(datetime.datetime.strptime(value, '%d.%m.%Y'))
-        except ValueError:
+            datetime.datetime.strptime(value, '%d.%m.%Y')
+        except (TypeError, ValueError):
             raise ValidationError("'{}' value should have DD.MM.YYYY format".format(self.instance_name))
 
 
@@ -141,6 +145,8 @@ class BirthDayField(DateField):
 
     def validate(self, value):
         super().validate(value)
+        if not value:
+            return
         date = datetime.datetime.strptime(value, '%d.%m.%Y')
         if date.year < datetime.date.today().year - 70:
             raise ValidationError("'{}' must not be older than 70 ".format(self.instance_name))
@@ -186,6 +192,7 @@ class OnlineScoreRequest:
     def __init__(self, parent):
         self.parent = parent
         self.is_valid = True
+        self.__response = {}
         self.__fill_data()
         self.__validate()
 
@@ -207,8 +214,13 @@ class OnlineScoreRequest:
             self.is_valid = False
 
     def get_response(self):
-        return scoring.get_score(None, self.phone, self.email, self.birthday, self.gender, self.first_name,
-                                 self.last_name)
+        if self.parent.is_admin:
+            self.__response['score'] = 42
+        else:
+            score = scoring.get_score(None, self.phone, self.email, self.birthday,
+                                      self.gender, self.first_name, self.last_name)
+            self.__response['score'] = score
+        return self.__response
 
 
 class MethodRequest:
@@ -221,6 +233,7 @@ class MethodRequest:
     def __init__(self, request_data):
         self.request_data = request_data
         self.response = ''
+        self.code = OK
         self.__is_valid = True
         self.__fill_data()
         self.__get_response()
@@ -249,18 +262,28 @@ class MethodRequest:
             self.__is_valid = False
 
     def __get_response(self):
-        if not self.__is_valid:
-            return
-        if self.method == 'online_score':
-            method = OnlineScoreRequest(self)
-        elif self.method == 'clients_interests':
-            method = ClientsInterestsRequest(self)
+        if not self.is_valid:
+            self.response = ERRORS[INVALID_REQUEST]
+            self.code = INVALID_REQUEST
+        elif not check_auth(self):
+            self.response = ERRORS[FORBIDDEN]
+            self.code = FORBIDDEN
         else:
-            self.__is_valid = False
-            logging.error("'{}' this method is unknown".format(self.method))
-        self.response = method.get_response()
-
-
+            if self.method == 'online_score':
+                method = OnlineScoreRequest(self)
+            elif self.method == 'clients_interests':
+                method = ClientsInterestsRequest(self)
+            else:
+                self.response = ERRORS[INVALID_REQUEST]
+                self.code = INVALID_REQUEST
+                logging.error("'{}' this method is unknown".format(self.method))
+                return
+            if not method.is_valid:
+                self.response = ERRORS[INVALID_REQUEST]
+                self.code = INVALID_REQUEST
+            else:
+                self.response = method.get_response()
+                self.code = OK
 
 
 def check_auth(request):
@@ -275,12 +298,8 @@ def check_auth(request):
 
 def method_handler(request, ctx, store):
     logging.info('Request {}, context {}, settings {}'.format(request, ctx, store))
-    response, code = '', OK
     request_instance = MethodRequest(request)
-    if not request_instance.is_valid:
-        return ERRORS[INVALID_REQUEST], INVALID_REQUEST
-
-    return response, code
+    return request_instance.response, request_instance.code
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
