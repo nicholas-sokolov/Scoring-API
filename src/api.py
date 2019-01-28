@@ -167,18 +167,33 @@ class ClientIDsField(Field):
         super().validate(value)
         if not isinstance(value, (list, tuple)):
             raise ValidationError("'{}' value must be of list or tuple type".format(self.instance_name))
+        if value:
+            for item in value:
+                if not isinstance(item, int):
+                    raise ValidationError("'{}' must be contains integer values".format(self.instance_name))
 
 
 class ClientsInterestsRequest:
-    client_ids = ClientIDsField(required=True)
+    client_ids = ClientIDsField(required=True, nullable=False)
     date = DateField(required=False, nullable=True)
 
-    def __init__(self, request_data):
-        self.request_data = request_data
-        self.is_valid = False
+    def __init__(self, parent):
+        self.parent = parent
+        self.is_valid = True
+        self.__fill_data()
+
+    def __fill_data(self):
+        try:
+            self.client_ids = self.parent.arguments.get('client_ids')
+            self.date = self.parent.arguments.get('date')
+        except ValidationError:
+            self.is_valid = False
 
     def get_response(self):
-        raise NotImplementedError()
+        response = {}
+        for item in self.client_ids:
+            response[str(item)] = scoring.get_interests(None, None)
+        return response
 
 
 class OnlineScoreRequest:

@@ -27,6 +27,8 @@ class TestSuite(unittest.TestCase):
         if request.get('arguments'):
             has_fields = [key for key, value in request['arguments'].items() if isinstance(value, int) or value]
             self.context['has'] = has_fields
+            if request['arguments'].get('client_ids'):
+                self.context['nclients'] = len(request['arguments'].get('client_ids'))
         return api.method_handler({"body": request, "headers": self.headers}, self.context, self.settings)
 
     def set_valid_auth(self, request):
@@ -137,7 +139,7 @@ class TestSuite(unittest.TestCase):
         response, code = self.get_response(request)
         self.assertEqual(api.OK, code, arguments)
         self.assertEqual(len(arguments["client_ids"]), len(response))
-        self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, basestring) for i in v)
+        self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, str) for i in v)
                         for v in response.values()))
         self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
 
