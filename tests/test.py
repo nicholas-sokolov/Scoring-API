@@ -3,7 +3,7 @@ import functools
 import hashlib
 import unittest
 
-import src.api as api
+import api as api
 
 
 def cases(cases):

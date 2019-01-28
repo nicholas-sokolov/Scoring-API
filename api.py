@@ -9,7 +9,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from optparse import OptionParser
 
-import scoring
+from src import scoring
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
 
