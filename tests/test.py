@@ -24,6 +24,9 @@ class TestSuite(unittest.TestCase):
         self.settings = {}
 
     def get_response(self, request):
+        if request.get('arguments'):
+            has_fields = [key for key, value in request['arguments'].items() if isinstance(value, int) or value]
+            self.context['has'] = has_fields
         return api.method_handler({"body": request, "headers": self.headers}, self.context, self.settings)
 
     def set_valid_auth(self, request):
