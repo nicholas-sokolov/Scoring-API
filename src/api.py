@@ -1,16 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import abc
-import json
 import datetime
-import logging
 import hashlib
+import json
+import logging
 import uuid
-from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from optparse import OptionParser
 
 import scoring
+
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -47,7 +48,7 @@ class ValidationError(Exception):
 
 
 class Field:
-    """ Main descriptor class for fields
+    """ Main class (descriptor) for fields
 
     :arg bool required: Should be set to True if field is required. By default not required.
     :arg bool nullable: Should be set to True if field can't be is empty. By default can be empty.
@@ -372,8 +373,7 @@ if __name__ == "__main__":
     op.add_option("-p", "--port", action="store", type=int, default=8080)
     op.add_option("-l", "--log", action="store", default=None)
     (opts, _args) = op.parse_args()
-    logging.basicConfig(filename=opts.log, level=logging.INFO,
-                        format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+    logging.basicConfig(filename=opts.log)
     server = HTTPServer(("localhost", opts.port), MainHTTPHandler)
     logging.info("Starting server at %s" % opts.port)
     try:
