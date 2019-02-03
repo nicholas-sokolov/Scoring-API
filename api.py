@@ -44,6 +44,17 @@ class ValidationError(Exception):
             logging.error('Field {}'.format(args[0]))
 
 
+class Declaration(type):
+
+    def __new__(mcs, name, bases, attrs):
+        current_fields = []
+        for key, value in list(attrs.items()):
+            if isinstance(value, Field):
+                current_fields.append(key)
+        attrs['declared_fields'] = current_fields
+        return super().__new__(mcs, name, bases, attrs)
+
+
 class Field:
     """ Main class (descriptor) for fields
 
@@ -55,20 +66,19 @@ class Field:
     def __init__(self, required=False, nullable=True):
         self.required = required
         self.nullable = nullable
-        self.__value = None
 
     def __set__(self, instance, value):
         self.validate(value)
-        self.set(value)
+        instance.__dict__[self.instance_name] = self.set(value)
 
     def __get__(self, instance, owner):
-        return self.__value
+        return instance.__dict__.get(self.instance_name)
 
     def __set_name__(self, owner, name):
         self.instance_name = name
 
     def set(self, value):
-        self.__value = value
+        return value
 
     def validate(self, value):
         if value is None and self.required:
@@ -80,22 +90,28 @@ class Field:
 class CharField(Field):
     """ String """
 
-    def set(self, value):
+    def validate(self, value):
+        super().validate(value)
         if value and not isinstance(value, str):
             raise ValidationError("'{}' must be a string".format(self.instance_name))
-        super().set(value)
 
 
 class IntegerField(Field):
     """ Number """
 
-    def set(self, value):
-        if not value:
+    def validate(self, value):
+        super().validate(value)
+        if not isinstance(value, int) and not value:
             return
         try:
-            super().set(int(value))
+            int(value)
         except (ValueError, TypeError):
             raise ValidationError("'{}' must be a integer".format(self.instance_name))
+
+    def set(self, value):
+        if not isinstance(value, int) and not value:
+            return None
+        return int(value)
 
 
 class ArgumentsField(Field):
@@ -177,30 +193,33 @@ class ClientIDsField(Field):
                     raise ValidationError("'{}' must be contains integer values".format(self.instance_name))
 
 
-class ClientsInterestsRequest:
-    client_ids = ClientIDsField(required=True, nullable=False)
-    date = DateField(required=False, nullable=True)
+class UserRequest(metaclass=Declaration):
 
-    def __init__(self, parent):
-        self.parent = parent
-        self.is_valid = True
+    def __init__(self, arguments):
+        self.arguments = arguments
+        self.code = OK
+        self.error = ''
         self.__fill_data()
 
     def __fill_data(self):
+        if not self.arguments:
+            self.code = INVALID_REQUEST
+            self.error = "No 'arguments' in request"
+            return
         try:
-            self.client_ids = self.parent.arguments.get('client_ids')
-            self.date = self.parent.arguments.get('date')
-        except ValidationError:
-            self.is_valid = False
-
-    def get_response(self):
-        response = {}
-        for item in self.client_ids:
-            response[str(item)] = scoring.get_interests(None, None)
-        return response
+            for field in self.declared_fields:
+                setattr(self, field, self.arguments.get(field))
+        except ValidationError as err:
+            self.code = INVALID_REQUEST
+            self.error = 'ValidationError : {}'.format(err)
 
 
-class OnlineScoreRequest:
+class ClientsInterestsRequest(UserRequest):
+    client_ids = ClientIDsField(required=True, nullable=False)
+    date = DateField(required=False, nullable=True)
+
+
+class OnlineScoreRequest(UserRequest):
     first_name = CharField(required=False, nullable=True)
     last_name = CharField(required=False, nullable=True)
     email = EmailField(required=False, nullable=True)
@@ -208,41 +227,23 @@ class OnlineScoreRequest:
     birthday = BirthDayField(required=False, nullable=True)
     gender = GenderField(required=False, nullable=True)
 
-    def __init__(self, parent):
-        self.parent = parent
-        self.is_valid = True
-        self.__response = {}
-        self.__fill_data()
+    def __init__(self, arguments):
+        super().__init__(arguments)
         self.__validate()
 
-    def __fill_data(self):
-        try:
-            self.first_name = self.parent.arguments.get('first_name')
-            self.last_name = self.parent.arguments.get('last_name')
-            self.email = self.parent.arguments.get('email')
-            self.phone = self.parent.arguments.get('phone')
-            self.birthday = self.parent.arguments.get('birthday')
-            self.gender = self.parent.arguments.get('gender')
-        except ValidationError:
-            self.is_valid = False
-
     def __validate(self):
-        if None in (self.phone, self.email) \
-                and None in (self.first_name, self.last_name) \
-                and None in (self.gender, self.birthday):
-            self.is_valid = False
-
-    def get_response(self):
-        if self.parent.is_admin:
-            self.__response['score'] = 42
-        else:
-            score = scoring.get_score(None, self.phone, self.email, self.birthday,
-                                      self.gender, self.first_name, self.last_name)
-            self.__response['score'] = score
-        return self.__response
+        """ There must be at least one value pair """
+        if not any([
+            (self.phone and self.email),
+            (self.first_name and self.last_name),
+            (isinstance(self.gender, int) and self.birthday)
+        ]):
+            self.code = INVALID_REQUEST
+            self.error = "There must be at least one value pair (phone, email), (first_name, last_name), " \
+                         "(gender, birthday)"
 
 
-class MethodRequest:
+class MethodRequest(metaclass=Declaration):
     account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
     token = CharField(required=True, nullable=True)
@@ -251,58 +252,34 @@ class MethodRequest:
 
     def __init__(self, request_data):
         self.request_data = request_data
-        self.response = ''
+        self.error = ''
         self.code = OK
-        self.__is_valid = True
         self.__fill_data()
-        self.__get_response()
+        if self.code == OK:
+            self.__validate()
 
     @property
     def is_admin(self):
         return self.login == ADMIN_LOGIN
 
-    @property
-    def is_valid(self):
-        return self.__is_valid is True
-
     def __fill_data(self):
         request_body = self.request_data.get('body')
         if request_body is None:
             logging.error("'body' not found.\nRequest: {}".format(self.request_data))
-            self.__is_valid = False
+            self.code = INVALID_REQUEST
+            self.error = "'body' not found."
             return
         try:
-            self.login = request_body.get('login')
-            self.account = request_body.get('account')
-            self.token = request_body.get('token')
-            self.method = request_body.get('method')
-            self.arguments = request_body.get('arguments')
-        except ValidationError:
-            self.__is_valid = False
-
-    def __get_response(self):
-        if not self.is_valid:
-            self.response = ERRORS[INVALID_REQUEST]
+            for field in self.declared_fields:
+                setattr(self, field, request_body.get(field))
+        except ValidationError as err:
             self.code = INVALID_REQUEST
-        elif not check_auth(self):
-            self.response = ERRORS[FORBIDDEN]
+            self.error = 'ValidationError : {}'.format(err)
+
+    def __validate(self):
+        if not check_auth(self):
             self.code = FORBIDDEN
-        else:
-            if self.method == 'online_score':
-                method = OnlineScoreRequest(self)
-            elif self.method == 'clients_interests':
-                method = ClientsInterestsRequest(self)
-            else:
-                self.response = ERRORS[INVALID_REQUEST]
-                self.code = INVALID_REQUEST
-                logging.error("'{}' this method is unknown".format(self.method))
-                return
-            if not method.is_valid:
-                self.response = ERRORS[INVALID_REQUEST]
-                self.code = INVALID_REQUEST
-            else:
-                self.response = method.get_response()
-                self.code = OK
+            self.error = 'Authentication failed'
 
 
 def check_auth(request):
@@ -315,10 +292,51 @@ def check_auth(request):
     return False
 
 
+def get_response(method_name, method_instance, request_instance):
+    """ Part of business logic
+
+    :param str method_name: Method name
+    :param OnlineScoreRequest|ClientsInterestsRequest method_instance:
+    :param MethodRequest request_instance:
+    :return: Dictionary
+    """
+    response = {}
+    if method_name == 'online_score':
+        if request_instance.is_admin:
+            score = 42
+        else:
+            score = scoring.get_score(None, method_instance.phone, method_instance.email, method_instance.birthday,
+                                      method_instance.gender, method_instance.first_name, method_instance.last_name)
+        response['score'] = score
+    elif method_name == 'clients_interests':
+        for item in method_instance.client_ids:
+            response[str(item)] = scoring.get_interests(None, None)
+    return response
+
+
 def method_handler(request, ctx, store):
     logging.info('Request {}, context {}, settings {}'.format(request, ctx, store))
+    response, code = {}, OK
+
     request_instance = MethodRequest(request)
-    return request_instance.response, request_instance.code
+    # check request
+    if request_instance.code != OK:
+        return request_instance.error, request_instance.code
+
+    if request_instance.method == 'online_score':
+        method = OnlineScoreRequest(request_instance.arguments)
+    elif request_instance.method == 'clients_interests':
+        method = ClientsInterestsRequest(request_instance.arguments)
+    else:
+        return 'Unknown method', INVALID_REQUEST
+
+    # check method
+    if method.code != OK:
+        return method.error, method.code
+
+    response = get_response(request_instance.method, method, request_instance)
+
+    return response, code
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
