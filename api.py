@@ -142,9 +142,10 @@ class PhoneField(Field):
         if not value:
             return
         try:
+            int(value)
             if len(str(value)) != 11 or not str(value).startswith('7'):
                 raise ValidationError("'{}' length should be equal 11 and starts with '7' ".format(self.instance_name))
-        except TypeError:
+        except (TypeError, ValueError):
             raise ValidationError("'{}' value should be a string or integer type".format(self.instance_name))
 
 
