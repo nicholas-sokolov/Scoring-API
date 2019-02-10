@@ -194,33 +194,35 @@ class ClientIDsField(Field):
                     raise ValidationError("'{}' must be contains integer values".format(self.instance_name))
 
 
-class UserRequest(metaclass=Declaration):
+class Request(metaclass=Declaration):
 
-    def __init__(self, arguments):
-        self.arguments = arguments
+    def __init__(self, request):
+        self.request = request
+        self.error = {}
         self.code = OK
-        self.error = ''
-        self.__fill_data()
+        self.fill_data(request)
 
-    def __fill_data(self):
-        if not self.arguments:
+    def fill_data(self, request):
+        if request is None:
+            logging.error("Wrong request.\nRequest: {}".format(request))
             self.code = INVALID_REQUEST
-            self.error = "No 'arguments' in request"
+            self.error = "Wrong request"
             return
-        try:
-            for field in self.declared_fields:
-                setattr(self, field, self.arguments.get(field))
-        except ValidationError as err:
+        for field in self.declared_fields:
+            try:
+                setattr(self, field, request.get(field))
+            except ValidationError as err:
+                self.error[field] = str(err)
+        if self.error:
             self.code = INVALID_REQUEST
-            self.error = 'ValidationError : {}'.format(err)
 
 
-class ClientsInterestsRequest(UserRequest):
+class ClientsInterestsRequest(Request):
     client_ids = ClientIDsField(required=True, nullable=False)
     date = DateField(required=False, nullable=True)
 
 
-class OnlineScoreRequest(UserRequest):
+class OnlineScoreRequest(Request):
     first_name = CharField(required=False, nullable=True)
     last_name = CharField(required=False, nullable=True)
     email = EmailField(required=False, nullable=True)
@@ -244,7 +246,7 @@ class OnlineScoreRequest(UserRequest):
                          "(gender, birthday)"
 
 
-class MethodRequest(metaclass=Declaration):
+class MethodRequest(Request):
     account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
     token = CharField(required=True, nullable=True)
@@ -252,33 +254,13 @@ class MethodRequest(metaclass=Declaration):
     method = CharField(required=True, nullable=False)
 
     def __init__(self, request_data):
-        self.request_data = request_data
-        self.error = ''
-        self.code = OK
-        self.__fill_data()
+        super().__init__(request_data.get('body'))
         if self.code == OK:
             self.__authenticate()
 
     @property
     def is_admin(self):
         return self.login == ADMIN_LOGIN
-
-    def __fill_data(self):
-        request_body = self.request_data.get('body')
-        if request_body is None:
-            logging.error("'body' not found.\nRequest: {}".format(self.request_data))
-            self.code = INVALID_REQUEST
-            self.error = "'body' not found."
-            return
-        error_fields = {}
-        for field in self.declared_fields:
-            try:
-                setattr(self, field, request_body.get(field))
-            except ValidationError as err:
-                error_fields[field] = str(err)
-        if error_fields:
-            self.code = INVALID_REQUEST
-            self.error = error_fields
 
     def __authenticate(self):
         if not check_auth(self):
