@@ -256,7 +256,7 @@ class MethodRequest(metaclass=Declaration):
         self.code = OK
         self.__fill_data()
         if self.code == OK:
-            self.__validate()
+            self.__authenticate()
 
     @property
     def is_admin(self):
@@ -269,14 +269,17 @@ class MethodRequest(metaclass=Declaration):
             self.code = INVALID_REQUEST
             self.error = "'body' not found."
             return
-        try:
-            for field in self.declared_fields:
+        error_fields = {}
+        for field in self.declared_fields:
+            try:
                 setattr(self, field, request_body.get(field))
-        except ValidationError as err:
+            except ValidationError as err:
+                error_fields[field] = str(err)
+        if error_fields:
             self.code = INVALID_REQUEST
-            self.error = 'ValidationError : {}'.format(err)
+            self.error = error_fields
 
-    def __validate(self):
+    def __authenticate(self):
         if not check_auth(self):
             self.code = FORBIDDEN
             self.error = 'Authentication failed'
