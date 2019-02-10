@@ -69,7 +69,8 @@ class Field:
 
     def __set__(self, instance, value):
         self.validate(value)
-        instance.__dict__[self.instance_name] = self.set(value)
+        if value is not None:
+            instance.__dict__[self.instance_name] = self.get_convert(value)
 
     def __get__(self, instance, owner):
         return instance.__dict__.get(self.instance_name)
@@ -77,7 +78,7 @@ class Field:
     def __set_name__(self, owner, name):
         self.instance_name = name
 
-    def set(self, value):
+    def get_convert(self, value):
         return value
 
     def validate(self, value):
@@ -108,7 +109,7 @@ class IntegerField(Field):
         except (ValueError, TypeError):
             raise ValidationError("'{}' must be a integer".format(self.instance_name))
 
-    def set(self, value):
+    def get_convert(self, value):
         if not isinstance(value, int) and not value:
             return None
         return int(value)
