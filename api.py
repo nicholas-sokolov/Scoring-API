@@ -278,31 +278,41 @@ def check_auth(request):
     return False
 
 
-def get_response(method_name, method_instance, request_instance):
-    """ Part of business logic
+def get_clients_interests(method):
+    """ About get clients interests
 
-    :param str method_name: Method name
-    :param OnlineScoreRequest|ClientsInterestsRequest method_instance:
-    :param MethodRequest request_instance:
-    :return: Dictionary
+    :param ClientsInterestsRequest method:
+    :return: tuple
     """
+    if method.code != OK:
+        return method.error, method.code
     response = {}
-    if method_name == 'online_score':
-        if request_instance.is_admin:
-            score = 42
-        else:
-            score = scoring.get_score(None, method_instance.phone, method_instance.email, method_instance.birthday,
-                                      method_instance.gender, method_instance.first_name, method_instance.last_name)
-        response['score'] = score
-    elif method_name == 'clients_interests':
-        for item in method_instance.client_ids:
-            response[str(item)] = scoring.get_interests(None, None)
-    return response
+    for item in method.client_ids:
+        response[str(item)] = scoring.get_interests(None, None)
+    return response, method.code
+
+
+def get_online_score(request, method):
+    """ About get online score
+
+    :param MethodRequest request:
+    :param OnlineScoreRequest method:
+    :return: tuple
+    """
+    if method.code != OK:
+        return method.error, method.code
+    response = {}
+    if request.is_admin:
+        score = 42
+    else:
+        score = scoring.get_score(None, method.phone, method.email, method.birthday,
+                                  method.gender, method.first_name, method.last_name)
+    response['score'] = score
+    return response, method.code
 
 
 def method_handler(request, ctx, store):
     logging.info('Request {}, context {}, settings {}'.format(request, ctx, store))
-    response, code = {}, OK
 
     request_instance = MethodRequest(request)
     # check request
@@ -311,16 +321,12 @@ def method_handler(request, ctx, store):
 
     if request_instance.method == 'online_score':
         method = OnlineScoreRequest(request_instance.arguments)
+        response, code = get_online_score(request_instance, method)
     elif request_instance.method == 'clients_interests':
         method = ClientsInterestsRequest(request_instance.arguments)
+        response, code = get_clients_interests(method)
     else:
-        return 'Unknown method', INVALID_REQUEST
-
-    # check method
-    if method.code != OK:
-        return method.error, method.code
-
-    response = get_response(request_instance.method, method, request_instance)
+        return {'method error': 'Unknown method'}, INVALID_REQUEST
 
     return response, code
 
