@@ -122,7 +122,7 @@ class ArgumentsField(Field):
         super().validate(value)
         try:
             dict(value)
-        except ValueError:
+        except (ValueError, TypeError):
             raise ValidationError("'{}' must be a dict".format(self.instance_name))
 
 
@@ -273,7 +273,10 @@ def check_auth(request):
     if request.is_admin:
         digest = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + ADMIN_SALT).encode()).hexdigest()
     else:
-        digest = hashlib.sha512((request.account + request.login + SALT).encode()).hexdigest()
+        try:
+            digest = hashlib.sha512((request.account + request.login + SALT).encode()).hexdigest()
+        except TypeError:
+            return False
     if digest == request.token:
         return True
     return False
