@@ -93,7 +93,7 @@ class CharField(Field):
 
     def validate(self, value):
         super().validate(value)
-        if value and not isinstance(value, str):
+        if value is not None and not isinstance(value, str):
             raise ValidationError("'{}' must be a string".format(self.instance_name))
 
 
@@ -140,7 +140,7 @@ class PhoneField(Field):
 
     def validate(self, value):
         super().validate(value)
-        if not value:
+        if value is None:
             return
         try:
             int(value)
@@ -154,7 +154,7 @@ class DateField(CharField):
     """ String with format DD.MM.YYYY """
 
     def validate(self, value):
-        if not value:
+        if value is None:
             return
         try:
             datetime.datetime.strptime(value, '%d.%m.%Y')
