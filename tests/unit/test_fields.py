@@ -1,16 +1,16 @@
 import pytest
 import datetime
 
-from api import CharField
-from api import IntegerField
-from api import ArgumentsField
-from api import EmailField
-from api import PhoneField
-from api import DateField
-from api import BirthDayField
-from api import GenderField
-from api import ClientIDsField
-from api import ValidationError
+from src.api import CharField
+from src.api import IntegerField
+from src.api import ArgumentsField
+from src.api import EmailField
+from src.api import PhoneField
+from src.api import DateField
+from src.api import BirthDayField
+from src.api import GenderField
+from src.api import ClientIDsField
+from src.api import ValidationError
 
 
 class RequestExample:

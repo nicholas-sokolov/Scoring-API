@@ -3,9 +3,7 @@ import hashlib
 
 import pytest
 
-import api
-
-from src.store import TarantoolConnector
+from src import api
 
 headers = {}
 context = {}
@@ -28,12 +26,6 @@ def set_auth(request):
 def test_empty_request():
     _, code = get_response({})
     assert api.INVALID_REQUEST == code
-
-
-@pytest.fixture(scope='module')
-def store():
-    store_instance = TarantoolConnector('test', 'test1234', 'test1')
-    return store_instance
 
 
 @pytest.mark.parametrize('request', [
@@ -90,22 +82,3 @@ def test_invalid_score_request(arguments):
     response, code = get_response(request)
     assert api.INVALID_REQUEST == code
     assert len(response) != 0
-
-
-def test_store_connection(store):
-    connect = store.set_connect()
-    assert connect is not None
-
-
-@pytest.mark.parametrize('args', [
-    ("0", "data0"),
-    ("1", "data1"),
-    ("2", "data2"),
-    ("3", "data3"),
-    ("4", "data4"),
-])
-def test_store_data_set(args, store):
-    key, value = args
-    store.set(key, value)
-    response = store.get(key)
-    assert response[0][1] == value
