@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from optparse import OptionParser
 
 from src import scoring
+from src.store import TarantoolConnector
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
 
@@ -282,25 +283,27 @@ def check_auth(request):
     return False
 
 
-def get_clients_interests(method):
+def get_clients_interests(method, store):
     """ About get clients interests
 
     :param ClientsInterestsRequest method:
+    :param TarantoolConnector store:
     :return: tuple
     """
     if method.code != OK:
         return method.error, method.code
     response = {}
     for item in method.client_ids:
-        response[str(item)] = scoring.get_interests(None, None)
+        response[str(item)] = scoring.get_interests(store, None)
     return response, method.code
 
 
-def get_online_score(request, method):
+def get_online_score(request, method, store):
     """ About get online score
 
     :param MethodRequest request:
     :param OnlineScoreRequest method:
+    :param TarantoolConnector store:
     :return: tuple
     """
     if method.code != OK:
@@ -309,7 +312,7 @@ def get_online_score(request, method):
     if request.is_admin:
         score = 42
     else:
-        score = scoring.get_score(None, method.phone, method.email, method.birthday,
+        score = scoring.get_score(store, method.phone, method.email, method.birthday,
                                   method.gender, method.first_name, method.last_name)
     response['score'] = score
     return response, method.code
@@ -325,10 +328,10 @@ def method_handler(request, ctx, store):
 
     if request_instance.method == 'online_score':
         method = OnlineScoreRequest(request_instance.arguments)
-        response, code = get_online_score(request_instance, method)
+        response, code = get_online_score(request_instance, method, store)
     elif request_instance.method == 'clients_interests':
         method = ClientsInterestsRequest(request_instance.arguments)
-        response, code = get_clients_interests(method)
+        response, code = get_clients_interests(method, store)
     else:
         return {'method error': 'Unknown method'}, INVALID_REQUEST
 
@@ -339,7 +342,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = TarantoolConnector()
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
