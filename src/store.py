@@ -8,7 +8,8 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname).1s %(
 
 class TarantoolConnector:
 
-    def __init__(self, login, password, space, host='localhost', port=3301):
+    def __init__(self, login='test', password='test1234', space='test1', host='localhost', port=3301):
+        self.connection = None
         self.login = login
         self.password = password
         self.space = space
@@ -17,56 +18,42 @@ class TarantoolConnector:
         self._cache = {}
         self.error = ''
         self.code = None
+        self.connect()
+
+    def connect(self):
+        try:
+            self.connection = tarantool.connect(self.host, self.port)
+        except tarantool.error.NetworkError as err:
+            logging.error(f'{err}')
+            self.code, self.error = err.args
+            return
+        logging.info('Connection was installed')
+        self.connection.authenticate(self.login, self.password)
 
     def get(self, key):
-        value = None
-        connect = self.set_connect()
-        try:
-            connect.authenticate(self.login, self.password)
-            value = connect.select(self.space, key)
-            if value:
-                value = value.data
-        except (tarantool.error.SchemaError, tarantool.error.DatabaseError) as err:
-            self.code, self.error = err.args
-            logging.error('Connection is failed ({}, {})'.format(self.code, self.error))
-        connect.close()
-        return value
-
-    def set(self, key, value):
-        connect = self.set_connect()
-        try:
-            connect.authenticate(self.login, self.password)
-            connect.replace(self.space, (key, value))
-        except (tarantool.error.SchemaError, tarantool.error.DatabaseError) as err:
-            self.code, self.error = err.args
-            logging.error('Connection is failed ({}, {})'.format(self.code, self.error))
-        connect.close()
+        """  Get value from storage
+        :param str key:
+        :return: String
+        """
+        value = self.connection.select(self.space, key)
+        return value.data or None
 
     def cache_get(self, key):
         if self._cache.get(key):
             value, time_cache = self._cache.get(key)
-            if time.time >= time_cache:
+            if time.time() < time_cache:
+                logging.info('Value was received from cache')
                 return value
+        logging.info('No cache')
         return None
 
+    def set(self, key, value):
+        self.connection.replace(self.space, (key, value))
+
     def cache_set(self, key, value, cache_time):
-        self._cache[key] = (value, time.time() + cache_time)
-        self.set(key, value)
-
-    def set_connect(self, timeout=30):
-        """ Setup of connection with tarantool server
-
-        :param int timeout: Timeout for tries of connection, in seconds
-        :return: None is connection is failed or Connection
+        """ Set to cache storage
+        :param str key:
+        :param str value:
+        :param int|float cache_time: minutes
         """
-        start_time = time.time()
-        while timeout > time.time() - start_time:
-            logging.info('Try to connect... Timeout ({:.0f}s.)'.format(timeout - (time.time() - start_time)))
-            try:
-                connection = tarantool.connect(self.host, self.port)
-                logging.info('Connection was installed')
-                return connection
-            except tarantool.error.NetworkError as err:
-                self.code, self.error = err.errno, err.message
-                continue
-        logging.error('Connection is failed ({}, {})'.format(self.code, self.error))
+        self._cache[key] = (value, time.time() + cache_time * 60)
