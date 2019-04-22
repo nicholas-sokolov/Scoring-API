@@ -4,8 +4,7 @@ import hashlib
 import pytest
 
 import api
-from api import ADMIN_LOGIN
-from api import ADMIN_SALT
+
 from src.store import TarantoolConnector
 
 headers = {}
@@ -18,8 +17,8 @@ def get_response(request):
 
 
 def set_auth(request):
-    if request.get('login') == ADMIN_LOGIN:
-        token = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + ADMIN_SALT).encode()).hexdigest()
+    if request.get('login') == api.ADMIN_LOGIN:
+        token = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + api.ADMIN_SALT).encode()).hexdigest()
     else:
         msg = request.get("account", "") + request.get("login", "") + api.SALT
         token = hashlib.sha512(msg.encode()).hexdigest()
