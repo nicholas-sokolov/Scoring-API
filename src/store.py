@@ -1,9 +1,32 @@
 import logging
 import time
 
+from functools import wraps
+
 import tarantool
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+
+
+def retry(count):
+    """ Attempt of set connection with tarantool server
+    :param int count: Number of attempts. Pause during 0.5 sec between attempts
+    :return: Connection or None
+    """
+    def wrapped(func):
+        @wraps(func)
+        def decorated(*args):
+            nonlocal count
+            while count:
+                try:
+                    return func(*args)
+                except tarantool.error.NetworkError:
+                    logging.info('Try connect...')
+                    time.sleep(0.5)
+                count -= 1
+            return None
+        return decorated
+    return wrapped
 
 
 class TarantoolConnector:
@@ -16,16 +39,16 @@ class TarantoolConnector:
         self.host = host
         self.port = port
         self._cache = {}
-        self.error = ''
-        self.code = None
-        self.connect()
+        self.set_connection()
 
+    @retry(10)
     def connect(self):
-        try:
-            self.connection = tarantool.connect(self.host, self.port)
-        except tarantool.error.NetworkError as err:
-            logging.error(f'{err}')
-            self.code, self.error = err.args
+        self.connection = tarantool.connect(self.host, self.port)
+
+    def set_connection(self):
+        self.connect()
+        if self.connection is None:
+            logging.error('Connection refused')
             return
         logging.info('Connection was installed')
         self.connection.authenticate(self.login, self.password)
