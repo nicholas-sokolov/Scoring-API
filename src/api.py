@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from optparse import OptionParser
 
 from src import scoring
-from src.store import TarantoolConnector
+from src.store import MemcachedConnector
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
 
@@ -287,7 +287,7 @@ def get_clients_interests(method, store):
     """ About get clients interests
 
     :param ClientsInterestsRequest method:
-    :param TarantoolConnector store:
+    :param MemcachedConnector store:
     :return: tuple
     """
     if method.code != OK:
@@ -303,7 +303,7 @@ def get_online_score(request, method, store):
 
     :param MethodRequest request:
     :param OnlineScoreRequest method:
-    :param TarantoolConnector store:
+    :param MemcachedConnector store:
     :return: tuple
     """
     if method.code != OK:
@@ -342,7 +342,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = TarantoolConnector()
+    store = MemcachedConnector()
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)

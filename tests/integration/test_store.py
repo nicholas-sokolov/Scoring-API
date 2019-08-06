@@ -1,12 +1,12 @@
 import time
 import pytest
 
-from src.store import TarantoolConnector
+from src.store import MemcachedConnector
 
 
 @pytest.fixture(scope='module')
 def store():
-    store_instance = TarantoolConnector()
+    store_instance = MemcachedConnector()
     return store_instance
 
 
@@ -19,7 +19,7 @@ def test_set_key(store):
     assert store.get('key1')
 
 
-def test_set_cached_stoge(store):
+def test_set_cached_storage(store):
     store.cache_set('key2', 'value2', 1)
     assert store.cache_get('key2')
 
@@ -31,7 +31,7 @@ def test_cleanup_cache(store):
 
 
 def test_store_connection(store):
-    assert store.connection is not None
+    assert store.client is not None
 
 
 @pytest.mark.parametrize('args', [
@@ -45,4 +45,4 @@ def test_store_data_set(args, store):
     key, value = args
     store.set(key, value)
     response = store.get(key)
-    assert response[0][1] == value
+    assert response == value
